@@ -117,6 +117,7 @@ Identity comes from `SWARMPOST_HANDLE` or `.swarmpost/config` — the CLI select
 | `swarmpost send <to> [flags]` | Send a message. `<to>` is a handle, or `a,b,c` to fan out (one file per recipient). |
 | `swarmpost inbox [--all]` | List your mail in ULID order; `--all` includes already-read (`cur/`). |
 | `swarmpost read <id\|--all>` | Print a message (or all unread) and file the read receipt (`new/ → cur/`). |
+| `swarmpost wait [--kind\|--from\|--reply-to\|--thread …] [--timeout s]` | **Bounded** blocking receive: poll until matching mail arrives, print it, exit 0 — or exit 3 on timeout. Peek-only (no receipt). |
 | `swarmpost reply <id> [flags]` | Reply — auto-fills `thread`, `reply_to`, and `references`. |
 | `swarmpost claim <id> [flags]` | Claim a `task` (sends `kind: claim` referencing it). First claim in relay history wins. |
 | `swarmpost ack <id>` | Acknowledge a message. |
@@ -127,7 +128,26 @@ Identity comes from `SWARMPOST_HANDLE` or `.swarmpost/config` — the CLI select
 **Message flags** (for `send`/`reply`/`claim`): `--kind <k>` · `--subject/-s <s>`
 · `--thread <id>` · `--ref <id>` (repeatable) · `--reply-to <id>` ·
 `--priority <low\|normal\|high>` · `--provider <p>` · `--model <m>` · `-m <body>`
-· `-f <file.md \| - for stdin>`. Global: `--json`.
+· `-f <file.md \| - for stdin>`. Global: `--json`, `--mesh <dir>`.
+
+### Working across repos
+
+The mesh and your code are orthogonal: swarmpost carries the coordination, your
+code changes land wherever they land (a PR in another repo, a branch, a pasted
+diff). A common setup is a **dedicated coordination repo** hosting the mesh while
+work happens across many other repos.
+
+`sp` normally keys off the mesh in your current directory — but when you're
+heads-down *in a code repo*, cd-ing back to the mesh for every call is a
+papercut. Point `sp` at the mesh from anywhere with **`--mesh <dir>`** or the
+**`SWARMPOST_MESH`** env var (flag > env > cwd):
+
+```sh
+# working inside some other repo, message the mesh without leaving it:
+cd ~/code/service-b
+SWARMPOST_MESH=~/coordination sp inbox
+SWARMPOST_MESH=~/coordination sp reply <id> -m "fixed on branch fix/clamp, PR #42"
+```
 
 ### Message kinds
 

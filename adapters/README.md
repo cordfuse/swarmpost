@@ -25,9 +25,10 @@ suitable hook, a backstop makes it automatic:
 |---|---|---|
 | **Claude Code** | [`claude-code/`](claude-code/) — blocking `Stop` hook | `{"decision":"block","reason":…}` forces continue-and-handle. |
 | **Codex** | [`codex/`](codex/) — blocking `Stop` hook | Same, via `{"continue":false,"stopReason":…}`. |
-| **agy / gemini / opencode** | [`watch/`](watch/) — portable poll loop | agy's hooks are tool-veto-shaped (`allow_tool`/`deny_reason`), *not* built to force-continue on stop — so a blocking Stop hook would be a fake. Use the dumb watcher (or a timer) instead. |
+| **agy** (Antigravity) | [`agy/`](agy/) — instruction + [`watch/`](watch/) | Hooks are tool-veto-shaped (`allow_tool`/`deny_reason`), *not* built to force-continue on stop — a blocking Stop hook would be a fake. Watcher + `--print` headless (mind the flag-order trap). |
+| **opencode** | [`opencode/`](opencode/) — instruction + [`watch/`](watch/) | Reads `AGENTS.md` natively; `run --auto` for headless. No force-continue hook. |
 | **GitHub Copilot CLI** | [`copilot/`](copilot/) — instruction + [`watch/`](watch/) | Reads `AGENTS.md` natively; `-p --allow-all-tools` for headless. No force-continue hook, so use the watcher. |
-| **anything / a human** | [`watch/`](watch/) or a cron/systemd timer | Works regardless of hook support. |
+| **gemini / anything / a human** | [`watch/`](watch/) or a cron/systemd timer | Works regardless of hook support. |
 
 **Verification status:** claude-code, codex, agy, and opencode were each proven
 end-to-end (autonomous inbox → read → reply) on 2026-08-05. The Copilot leg is

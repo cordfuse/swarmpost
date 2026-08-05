@@ -5,10 +5,11 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { mkdtempSync, mkdirSync, writeFileSync, existsSync, readFileSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, writeFileSync, existsSync, readFileSync, readdirSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { parseMessage } from '../src/envelope.js';
 
 const BIN = join(dirname(fileURLToPath(import.meta.url)), '..', 'bin', 'swarmpost.js');
 const GITENV = {
@@ -110,4 +111,55 @@ test('conflict-freedom: concurrent sends to the SAME inbox merge clean', () => {
   const nd = join(verify, 'agents', 'claude-code', 'inbox', 'new');
   assert.ok(existsSync(join(nd, '01AAA.steve.md')), 'A message survived');
   assert.ok(existsSync(join(nd, '01BBB.claude-code.md')), 'B message survived');
+});
+
+test('reply de-dupes references when the parent id is re-added via --ref (B2)', () => {
+  const { relay, A, B } = setup();
+  sp(A, ['init']); sp(A, ['join', 'steve']); sp(B, ['join', 'claude-code']);
+  const id = sp(A, ['send', 'claude-code', '--kind', 'task', '-m', 'x']).stdout.replace(/^Sent:\s*/, '');
+  sp(B, ['read', id]);
+  // reply AND explicitly --ref the same id: reply already injects orig.id, so
+  // without de-dupe references would list it twice.
+  assert.equal(sp(B, ['reply', id, '--ref', id, '-m', 'done']).status, 0, 'reply');
+  const verify = join(dirname(relay), 'verify-refs');
+  git(dirname(relay), ['clone', '-q', relay, 'verify-refs']);
+  git(verify, ['checkout', '-q', 'mail']);
+  const nd = join(verify, 'agents', 'steve', 'inbox', 'new');
+  const file = readdirSync(nd).find((f) => f.endsWith('.md'));
+  const { data } = parseMessage(readFileSync(join(nd, file), 'utf8'));
+  assert.deepEqual(data.references, [id], 'parent id appears exactly once');
+});
+
+test('--mesh / SWARMPOST_MESH let sp run from outside the mesh dir (cross-repo)', () => {
+  const { root, A, B } = setup();
+  sp(A, ['init']); sp(A, ['join', 'steve']); sp(B, ['join', 'claude-code']);
+  sp(A, ['send', 'claude-code', '--kind', 'task', '-m', 'hi']);
+  // `root` holds relay.git + clones but is NOT itself a checkout — a stand-in for
+  // "some other repo you're working in". Without an override, sp can't find a mesh here.
+  const env = { ...process.env, ...GITENV, SWARMPOST_HANDLE: 'claude-code' };
+  const bare = spawnSync('node', [BIN, 'inbox'], { cwd: root, encoding: 'utf8', env });
+  assert.notEqual(bare.status, 0, 'no override from a foreign cwd fails');
+
+  const viaFlag = spawnSync('node', [BIN, 'inbox', '--mesh', B], { cwd: root, encoding: 'utf8', env });
+  assert.equal(viaFlag.status, 0, '--mesh resolves the mesh from a foreign cwd');
+  assert.match(viaFlag.stdout, /\[task\] steve/);
+
+  const viaEnv = spawnSync('node', [BIN, 'inbox'], { cwd: root, encoding: 'utf8', env: { ...env, SWARMPOST_MESH: B } });
+  assert.equal(viaEnv.status, 0, 'SWARMPOST_MESH resolves the mesh from a foreign cwd');
+  assert.match(viaEnv.stdout, /\[task\] steve/);
+});
+
+test('wait: matches waiting mail instantly, does not consume, times out with exit 3', () => {
+  const { A, B } = setup();
+  sp(A, ['init']); sp(A, ['join', 'steve']); sp(B, ['join', 'claude-code']);
+  const id = sp(A, ['send', 'claude-code', '--kind', 'task', '-m', 'x']).stdout.replace(/^Sent:\s*/, '');
+  // already-waiting mail -> wait returns immediately
+  const w = sp(B, ['wait', '--kind', 'task', '--timeout', '5']);
+  assert.equal(w.status, 0, 'wait matched');
+  assert.match(w.stdout, new RegExp(id));
+  // wait is a peek: no read receipt filed, still unread
+  assert.match(sp(B, ['inbox']).stdout, new RegExp(id), 'wait did not consume');
+  // no match within the window -> bounded timeout, exit 3
+  const t = sp(B, ['wait', '--from', 'nobody', '--timeout', '1', '--interval', '1']);
+  assert.equal(t.status, 3, 'wait times out with exit 3');
 });

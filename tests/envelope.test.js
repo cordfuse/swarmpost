@@ -34,3 +34,13 @@ test('serialize emits fields in stable, scannable order', () => {
 test('parseMessage rejects a message with no frontmatter', () => {
   assert.throws(() => parseMessage('just a body, no fence'), /frontmatter/);
 });
+
+test('parseMessage handles CRLF line endings (Windows checkout, core.autocrlf)', () => {
+  // same message an LF checkout produces, but every newline is CRLF
+  const lf = serialize({ spec: '0.5', id: '01CRLF', from: 'steve', kind: 'info' }, 'hello\nworld');
+  const crlf = lf.replace(/\n/g, '\r\n');
+  const { data, body } = parseMessage(crlf);
+  assert.equal(data.id, '01CRLF');
+  assert.equal(data.kind, 'info');
+  assert.equal(body.replace(/\r/g, '').trim(), 'hello\nworld');
+});

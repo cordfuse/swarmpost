@@ -39,8 +39,10 @@ export function serialize(fm, body) {
 }
 
 export function parseMessage(text) {
-  const m = text.match(/^---\n([\s\S]*?)\n---\n?([\s\S]*)$/);
+  // \r? at each line break so CRLF messages (e.g. a Windows checkout with
+  // core.autocrlf) parse identically to LF ones (§7).
+  const m = text.match(/^---\r?\n([\s\S]*?)\r?\n---\r?\n?([\s\S]*)$/);
   if (!m) throw new Error('missing frontmatter');
   const data = parse(m[1]) || {};
-  return { data, body: m[2].replace(/^\n+/, '') };
+  return { data, body: m[2].replace(/^(\r?\n)+/, '') };
 }

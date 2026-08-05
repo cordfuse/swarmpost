@@ -9,13 +9,22 @@ import { parseMessage } from './envelope.js';
 
 export const MAIL_BRANCH = 'mail';
 
-export function repoRoot() {
-  const r = git(['rev-parse', '--show-toplevel']);
-  if (r.status !== 0) throw new Error('not inside a git repository');
+// Locate the mesh repo. Precedence: explicit override (--mesh) > SWARMPOST_MESH
+// env > the current working directory. The override lets `sp` run from anywhere
+// — e.g. from inside a code repo you're editing — without cd-ing to the mesh.
+export function repoRoot(override) {
+  const dir = override || process.env.SWARMPOST_MESH || undefined;
+  const r = git(['rev-parse', '--show-toplevel'], dir);
+  if (r.status !== 0) {
+    throw new Error(dir
+      ? `--mesh/SWARMPOST_MESH is not a git repository: ${dir}`
+      : 'not inside a git repository — cd into your mesh, or pass --mesh <dir> / set SWARMPOST_MESH');
+  }
   return r.stdout;
 }
 
-export function paths(root = repoRoot()) {
+export function paths(override) {
+  const root = repoRoot(override);
   const sp = join(root, '.swarmpost');
   return {
     root,

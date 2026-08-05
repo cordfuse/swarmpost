@@ -130,7 +130,7 @@ export function send(p, toRaw, opts = {}) {
       subject: opts.subject || '',
       kind: opts.kind || 'info',
       thread: opts.thread || id,
-      references: opts.references || [],
+      references: [...new Set(opts.references || [])], // de-dupe: reply/claim/ack may re-add the parent id
       reply_to: opts.reply_to,
       ts: new Date().toISOString(),
       priority: opts.priority || 'normal',
@@ -164,6 +164,41 @@ export function inbox(p, opts = {}) {
     }
   }
   return out;
+}
+
+// ── wait ─────────────────────────────────────────────────────────────
+// Bounded blocking receive: poll own inbox/new/ until a message matching the
+// filters arrives, or the timeout elapses. NOT a daemon (§2) — it has a hard
+// deadline and always returns; it's the caller's own turn doing the poll the
+// watch/ adapter does, just inline. Detection only: it does NOT file a read
+// receipt (use `read` to consume), so `wait` is a safe peek.
+function sleepSync(ms) {
+  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
+}
+export function wait(p, opts = {}) {
+  const me = whoami(p);
+  const timeoutMs = Math.max(0, (opts.timeout ?? 300)) * 1000;
+  const intervalMs = Math.max(1, (opts.interval ?? 5)) * 1000;
+  const deadline = Date.now() + timeoutMs;
+  const matches = (d) =>
+    (!opts.reply_to || d.reply_to === opts.reply_to) &&
+    (!opts.kind || d.kind === opts.kind) &&
+    (!opts.from || d.from === opts.from) &&
+    (!opts.thread || d.thread === opts.thread);
+  for (;;) {
+    ensureWorktree(p);
+    syncIn(p);
+    const hits = [];
+    const dir = inboxNew(p, me);
+    for (const f of listMessages(dir)) {
+      let d = {};
+      try { d = parseMessage(readFileSync(join(dir, f), 'utf8')).data; } catch { continue; }
+      if (matches(d)) hits.push({ id: d.id || f.split('.')[0], from: d.from || '?', kind: d.kind || '?', subject: d.subject || '' });
+    }
+    if (hits.length) return { matched: true, messages: hits };
+    if (Date.now() >= deadline) return { matched: false, messages: [] };
+    sleepSync(Math.min(intervalMs, Math.max(0, deadline - Date.now())));
+  }
 }
 
 // ── read ─────────────────────────────────────────────────────────────

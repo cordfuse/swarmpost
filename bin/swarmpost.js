@@ -14,8 +14,10 @@ const USAGE = `swarmpost — git-first, markdown-first agent messaging
                                      create your mailbox + roster entry (+ optional §5.1 profile)
   swarmpost whoami                   print the handle you're acting as
   swarmpost send <to> [flags]        send a message (to = handle, or a,b,c fan-out)
-  swarmpost inbox [--all]            list your mail (ULID order); --all includes read
-  swarmpost read <id|--all>          print + receipt (new/ -> cur/)
+  swarmpost inbox [--all]            list your mail (fetches first); --all includes read
+  swarmpost read <id|--all>          print + receipt (fetches first; new/ -> cur/)
+  swarmpost wait [--reply-to id|--kind k|--from h|--thread id] [--timeout s] [--interval s]
+                                     block until matching mail arrives, then print it (bounded; no receipt)
   swarmpost reply <id> [flags]       reply to a message
   swarmpost claim <id> [flags]       claim a task (kind: claim)
   swarmpost ack <id>                 acknowledge a message
@@ -27,7 +29,9 @@ send/reply/claim flags:
   --kind <k>   --subject <s>   --thread <id>   --ref <id> (repeatable)
   --reply-to <id>   --priority <low|normal|high>   --provider <p>   --model <m>
   -m <body>    -f <file.md | -=stdin>
-global: --json   |   identity via SWARMPOST_HANDLE or .swarmpost/config`;
+kinds: task  claim  review-request  review-complete  ack  error  info  question  (+ any the mesh manifest adds)
+global: --json   |   --mesh <dir> / SWARMPOST_MESH (run from anywhere, e.g. inside a code repo)
+        identity via SWARMPOST_HANDLE or .swarmpost/config`;
 
 function parse(argv) {
   const flags = { _: [], ref: [] };
@@ -36,6 +40,7 @@ function parse(argv) {
     const take = () => argv[++i];
     switch (a) {
       case '--json': flags.json = true; break;
+      case '--mesh': flags.mesh = take(); break;
       case '--all': flags.all = true; break;
       case '--new': flags.new = true; break;
       case '--print-cmd': flags.printCmd = true; break;
@@ -44,6 +49,9 @@ function parse(argv) {
       case '--thread': flags.thread = take(); break;
       case '--ref': flags.ref.push(take()); break;
       case '--reply-to': flags.reply_to = take(); break;
+      case '--from': flags.from = take(); break;
+      case '--timeout': flags.timeout = Number(take()); break;
+      case '--interval': flags.interval = Number(take()); break;
       case '--priority': flags.priority = take(); break;
       case '--provider': flags.provider = take(); break;
       case '--model': flags.model = take(); break;
@@ -83,7 +91,7 @@ async function main() {
   const flags = parse(process.argv.slice(2));
   const verb = flags._[0];
   if (!verb || flags.help) { process.stdout.write(USAGE + '\n'); process.exit(verb ? 0 : 1); }
-  const p = paths();
+  const p = paths(flags.mesh);
 
   switch (verb) {
     case 'init': {
@@ -112,6 +120,14 @@ async function main() {
     case 'read': {
       const r = ops.read(p, flags._[1] ?? (flags.all ? '--all' : undefined), { all: flags.all });
       out(flags, r.map((m) => m.text).join('\n---\n'), r.map((m) => ({ file: m.file }))); break;
+    }
+    case 'wait': {
+      const r = ops.wait(p, {
+        reply_to: flags.reply_to, kind: flags.kind, from: flags.from, thread: flags.thread,
+        timeout: flags.timeout, interval: flags.interval,
+      });
+      if (!r.matched) { out(flags, '(timed out — no matching mail)', r); process.exit(3); }
+      out(flags, r.messages.map((m) => `${m.id}  [${m.kind}] ${m.from}: ${m.subject}`).join('\n'), r); break;
     }
     case 'reply': { const r = ops.reply(p, flags._[1], sendOpts(flags)); out(flags, r.ids.map((id) => `Sent: ${id}`).join('\n'), r); break; }
     case 'claim': { const r = ops.claim(p, flags._[1], sendOpts(flags)); out(flags, `Claimed via ${r.ids[0]}`, r); break; }
