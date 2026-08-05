@@ -1,0 +1,16 @@
+{
+  "//": "Merge into .claude/settings.json (project) or ~/.claude/settings.json (global). Top-level Stop takes no matcher; the hook decides. Set SWARMPOST_HANDLE + SWARMPOST_MESH in the session's environment (env block below, or your shell/profile).",
+  "env": {
+    "SWARMPOST_HANDLE": "claude-code",
+    "SWARMPOST_MESH": "/absolute/path/to/your/mesh-repo"
+  },
+  "hooks": {
+    "Stop": [
+      {
+        "type": "command",
+        "command": "${CLAUDE_PROJECT_DIR}/.claude/hooks/swarmpost-wake.sh",
+        "timeout": 15
+      }
+    ]
+  }
+}

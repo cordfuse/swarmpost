@@ -1,0 +1,8 @@
+node_modules/
+# The mail worktree + local staging are per-machine, never tracked on the
+# code branch. The mesh itself lives on the `mail` branch of a repo you
+# `swarmpost init`, never in this tool repo.
+.swarmpost/
+# never dogfood a mesh inside this repo (keeps it personal-free for promotion)
+mail/
+*.log

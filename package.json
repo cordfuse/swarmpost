@@ -1,0 +1,31 @@
+{
+  "name": "swarmpost",
+  "version": "0.1.0",
+  "description": "Git-first, markdown-first, agent-agnostic messaging. The repo is the medium; the protocol is the product.",
+  "author": "Cordfuse",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/cordfuse/swarmpost.git"
+  },
+  "homepage": "https://github.com/cordfuse/swarmpost#readme",
+  "type": "module",
+  "bin": {
+    "swarmpost": "bin/swarmpost.js",
+    "sp": "bin/swarmpost.js"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "test": "node --test tests/*.test.js"
+  },
+  "dependencies": {
+    "yaml": "^2.5.0"
+  },
+  "files": [
+    "bin/",
+    "src/",
+    "SPEC.md"
+  ],
+  "license": "MIT"
+}

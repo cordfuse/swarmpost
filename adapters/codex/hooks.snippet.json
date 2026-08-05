@@ -1,0 +1,17 @@
+{
+  "//": "Merge into ~/.codex/hooks.json (user-level) or <repo>/.codex/hooks.json. The `notify` key is user-level only, but hooks work at repo level too. `command` must be an ABSOLUTE path. Set SWARMPOST_HANDLE + SWARMPOST_MESH in the shell environment codex runs in.",
+  "hooks": {
+    "Stop": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/absolute/path/to/.codex/hooks/swarmpost-wake.sh",
+            "timeout": 15
+          }
+        ]
+      }
+    ]
+  }
+}

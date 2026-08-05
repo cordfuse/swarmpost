@@ -1,0 +1,287 @@
+// ops.js — the verbs (§14). Each is a thin choreography over git + files.
+// Writes only ADD to a recipient's inbox/new/ or mutate the caller's own
+// tree (§6), so concurrent peers merge trivially.
+
+import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, writeFileSync } from 'fs';
+import { join, basename } from 'path';
+import { stringify } from 'yaml';
+import { git, pushWithRetry } from './git.js';
+import { ulid, filename, serialize, parseMessage } from './envelope.js';
+import {
+  MAIL_BRANCH, paths, manifestFile, agentDir, inboxNew, inboxCur,
+  ensureWorktree, syncIn, roster, readManifest, whoami, validHandle,
+} from './mesh.js';
+
+// whoami — which handle am I acting as (§14 identity).
+export function who(p) {
+  return { handle: whoami(p) };
+}
+
+
+const CORE_KINDS = ['task', 'claim', 'review-request', 'review-complete', 'ack', 'error', 'info', 'question'];
+
+function keepDir(dir) {
+  mkdirSync(dir, { recursive: true });
+  const k = join(dir, '.gitkeep');
+  if (!existsSync(k)) writeFileSync(k, '');
+}
+
+// Best-effort git bookkeeping (option B). The caller has already written the
+// file(s); here we try to stage + commit them. If git is unavailable or `.git`
+// is read-only — e.g. an agent running inside a sandbox that protects `.git` —
+// we DON'T throw. The files stay written and an unsandboxed `sp flush` (run by
+// the watcher/operator) records them later. Returns whether it committed.
+function commit(p, msg) {
+  if (git(['add', '-A'], p.worktree).status !== 0) return false;
+  const r = git(['commit', '-q', '-m', msg], p.worktree);
+  return r.status === 0; // (nothing-to-commit -> false, harmless)
+}
+
+function writeManifest(p, data, body) {
+  const ordered = {};
+  for (const k of ['spec', 'mesh', 'kinds', 'handles']) if (data[k] !== undefined) ordered[k] = data[k];
+  for (const k of Object.keys(data)) if (!(k in ordered)) ordered[k] = data[k];
+  writeFileSync(manifestFile(p), `---\n${stringify(ordered).trimEnd()}\n---\n\n${(body || '').trim()}\n`);
+}
+
+// message files in a dir, ULID-sorted (§8), skipping .gitkeep
+function listMessages(dir) {
+  if (!existsSync(dir)) return [];
+  return readdirSync(dir).filter((f) => f.endsWith('.md') && f !== '.gitkeep').sort();
+}
+
+function findInMailbox(p, handle, idPrefix) {
+  for (const box of [inboxNew(p, handle), inboxCur(p, handle)]) {
+    for (const f of listMessages(box)) {
+      if (f.startsWith(idPrefix)) return { path: join(box, f), file: f, box };
+    }
+  }
+  return null;
+}
+
+// ── init ─────────────────────────────────────────────────────────────
+export function init(p) {
+  ensureWorktree(p, { create: true });
+  if (existsSync(manifestFile(p))) throw new Error('mesh already initialized (manifest.md exists)');
+  keepDir(join(p.worktree, 'agents'));
+  // The manifest IS the mesh's self-description (§4): the `spec:` version points
+  // at the protocol. Participation behavior lives once in SPEC.md, referenced by
+  // version — never copied into the mesh.
+  writeManifest(p, { spec: '0.5', mesh: 'swarmpost', kinds: CORE_KINDS, handles: [] },
+    'This is a swarmpost mesh — protocol v0.5. Peers follow the swarmpost protocol (SPEC.md). Extended kinds and house rules for this mesh go here.');
+  commit(p, 'mail: init mesh');
+  pushWithRetry(p.worktree, MAIL_BRANCH);
+  return { branch: MAIL_BRANCH };
+}
+
+// ── join ─────────────────────────────────────────────────────────────
+export function join_(p, handle, opts = {}) {
+  if (!validHandle(handle)) throw new Error(`invalid handle '${handle}' — [a-z0-9][a-z0-9-]{1,31}`);
+  ensureWorktree(p);
+  syncIn(p);
+  keepDir(inboxNew(p, handle));
+  keepDir(inboxCur(p, handle));
+  const man = readManifest(p);
+  const handles = Array.isArray(man.data.handles) ? man.data.handles : [];
+  if (!handles.includes(handle)) {
+    man.data.handles = [...handles, handle];
+    writeManifest(p, man.data, man.body);
+  }
+  // optional inert launch recipe (§5.1) — swarmpost records how a peer is
+  // launched; it never launches it. env lists KEY NAMES ONLY, never values.
+  if (opts.provider || opts.model || opts.argv || opts.env || opts.notes) {
+    const fm = { handle };
+    if (opts.provider) fm.provider = opts.provider;
+    if (opts.model) fm.model = opts.model;
+    if (opts.argv) fm.argv = opts.argv;
+    if (opts.env) fm.env = opts.env;
+    if (opts.notes) fm.notes = opts.notes;
+    writeFileSync(join(agentDir(p, handle), 'profile.md'),
+      `---\n${stringify(fm).trimEnd()}\n---\n\n${opts.notes || `${handle} — launch recipe in the frontmatter above.`}\n`);
+  }
+  commit(p, `mail: join ${handle}`);
+  pushWithRetry(p.worktree, MAIL_BRANCH);
+  // record identity locally (untracked)
+  writeFileSync(p.config, `handle: ${handle}\n`);
+  return { handle };
+}
+
+// ── send ─────────────────────────────────────────────────────────────
+export function send(p, toRaw, opts = {}) {
+  ensureWorktree(p);
+  syncIn(p);
+  const from = whoami(p);
+  const recipients = String(toRaw).split(',').map((s) => s.trim()).filter(Boolean);
+  if (recipients.length === 0) throw new Error('send requires at least one recipient');
+  const known = roster(p);
+  for (const to of recipients) {
+    if (!known.includes(to)) throw new Error(`'${to}' is not in the mesh roster (§4) — join it first`);
+  }
+  if (typeof opts.body !== 'string' || opts.body.length === 0) throw new Error('send requires a body (-m or -f)');
+
+  const id = ulid();
+  const ids = [];
+  for (const to of recipients) {
+    const fm = {
+      spec: '0.5',
+      id: recipients.length === 1 ? id : ulid(),
+      from,
+      to,
+      subject: opts.subject || '',
+      kind: opts.kind || 'info',
+      thread: opts.thread || id,
+      references: opts.references || [],
+      reply_to: opts.reply_to,
+      ts: new Date().toISOString(),
+      priority: opts.priority || 'normal',
+      provider: opts.provider,
+      model: opts.model,
+    };
+    for (const k of Object.keys(fm)) if (fm[k] === undefined) delete fm[k];
+    const box = inboxNew(p, to);
+    mkdirSync(box, { recursive: true });
+    writeFileSync(join(box, filename(fm.id, from)), serialize(fm, opts.body));
+    ids.push(fm.id);
+  }
+  // one commit for the whole fan-out (finding: atomicity unit = commit)
+  commit(p, `mail: ${from} -> ${recipients.join(',')} ${opts.kind || 'info'}`);
+  pushWithRetry(p.worktree, MAIL_BRANCH);
+  return { ids };
+}
+
+// ── inbox ────────────────────────────────────────────────────────────
+export function inbox(p, opts = {}) {
+  ensureWorktree(p);
+  syncIn(p);
+  const me = whoami(p);
+  const dirs = opts.all ? [inboxNew(p, me), inboxCur(p, me)] : [inboxNew(p, me)];
+  const out = [];
+  for (const dir of dirs) {
+    for (const f of listMessages(dir)) {
+      let d = {};
+      try { d = parseMessage(readFileSync(join(dir, f), 'utf8')).data; } catch { /* poison — still list */ }
+      out.push({ id: d.id || f.split('.')[0], from: d.from || '?', kind: d.kind || '?', subject: d.subject || '', state: basename(dir) });
+    }
+  }
+  return out;
+}
+
+// ── read ─────────────────────────────────────────────────────────────
+export function read(p, idOrAll, opts = {}) {
+  ensureWorktree(p);
+  syncIn(p);
+  const me = whoami(p);
+  const newDir = inboxNew(p, me);
+  let targets;
+  if (idOrAll === '--all' || opts.all) {
+    targets = listMessages(newDir);
+  } else {
+    const f = listMessages(newDir).find((x) => x.startsWith(idOrAll));
+    if (!f) throw new Error(`no unread message matching '${idOrAll}'`);
+    targets = [f];
+  }
+  const bodies = [];
+  for (const f of targets) {
+    const text = readFileSync(join(newDir, f), 'utf8');
+    bodies.push({ file: f, text });
+    // plain fs move (workspace write — works in a sandbox); git records it below.
+    mkdirSync(inboxCur(p, me), { recursive: true });
+    renameSync(join(newDir, f), join(inboxCur(p, me), f));
+  }
+  if (targets.length > 0) {
+    commit(p, `mail: ${me} read ${targets.length}`);
+    pushWithRetry(p.worktree, MAIL_BRANCH);
+  }
+  return bodies;
+}
+
+// ── reply ────────────────────────────────────────────────────────────
+export function reply(p, id, opts = {}) {
+  ensureWorktree(p);
+  const me = whoami(p);
+  const found = findInMailbox(p, me, id);
+  if (!found) throw new Error(`no message matching '${id}' in ${me}'s mailbox`);
+  const orig = parseMessage(readFileSync(found.path, 'utf8')).data;
+  return send(p, orig.from, {
+    ...opts,
+    kind: opts.kind || 'info',
+    subject: opts.subject || (orig.subject ? `Re: ${orig.subject}` : ''),
+    thread: orig.thread || orig.id,
+    reply_to: orig.id,
+    references: [orig.id, ...(opts.references || [])],
+  });
+}
+
+// ── claim ────────────────────────────────────────────────────────────
+export function claim(p, id, opts = {}) {
+  ensureWorktree(p);
+  const me = whoami(p);
+  const found = findInMailbox(p, me, id);
+  if (!found) throw new Error(`no task matching '${id}' in ${me}'s mailbox`);
+  const task = parseMessage(readFileSync(found.path, 'utf8')).data;
+  return send(p, opts.to || task.from, {
+    ...opts,
+    kind: 'claim',
+    subject: `Claiming: ${task.subject || task.id}`,
+    thread: task.thread || task.id,
+    references: [task.id],
+    body: opts.body || `Claiming task ${task.id}.`,
+  });
+}
+
+// ── ack ──────────────────────────────────────────────────────────────
+export function ack(p, id, opts = {}) {
+  ensureWorktree(p);
+  const me = whoami(p);
+  const found = findInMailbox(p, me, id);
+  if (!found) throw new Error(`no message matching '${id}' in ${me}'s mailbox`);
+  const orig = parseMessage(readFileSync(found.path, 'utf8')).data;
+  return send(p, orig.from, {
+    ...opts,
+    kind: 'ack',
+    subject: `Ack: ${orig.subject || orig.id}`,
+    thread: orig.thread || orig.id,
+    reply_to: orig.id,
+    references: [orig.id],
+    body: opts.body || `Acknowledged ${orig.id}.`,
+  });
+}
+
+// ── sync ─────────────────────────────────────────────────────────────
+export function sync(p) {
+  ensureWorktree(p);
+  syncIn(p);
+  const pushed = pushWithRetry(p.worktree, MAIL_BRANCH);
+  return { pushed };
+}
+
+// ── flush (option B) ───────────────────────────────────────────────────
+// Record any mail an agent wrote but couldn't commit (sandbox protecting
+// .git). Run OUTSIDE the sandbox — by the watcher or the operator — where git
+// works. Stages everything uncommitted on the mail branch, commits, and pushes.
+export function flush(p) {
+  ensureWorktree(p);
+  syncIn(p);
+  git(['add', '-A'], p.worktree);
+  const committed = git(['commit', '-q', '-m', `mail: flush ${new Date().toISOString()}`], p.worktree).status === 0;
+  const pushed = pushWithRetry(p.worktree, MAIL_BRANCH);
+  return { committed, pushed };
+}
+
+// ── profile ──────────────────────────────────────────────────────────
+export function profile(p, handle, opts = {}) {
+  ensureWorktree(p);
+  const pf = join(agentDir(p, handle), 'profile.md');
+  if (!existsSync(pf)) throw new Error(`no profile.md for '${handle}'`);
+  const text = readFileSync(pf, 'utf8');
+  if (!opts.printCmd) return { text };
+  // Assemble the launch command from the recipe and PRINT it — never execute.
+  const { data } = parseMessage(text);
+  const argv = Array.isArray(data.argv) ? data.argv : [];
+  const envKeys = Array.isArray(data.env) ? data.env : [];
+  const envPrefix = envKeys.map((k) => `${k}="$${k}"`).join(' ');
+  const cmd = [envPrefix, ...argv].filter(Boolean).join(' ');
+  return { text, cmd };
+}
+
+export { paths };
