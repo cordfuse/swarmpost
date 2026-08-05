@@ -9,7 +9,7 @@ import * as ops from '../src/ops.js';
 
 const USAGE = `swarmpost — git-first, markdown-first agent messaging
 
-  swarmpost init                     create the orphan mail branch + manifest
+  swarmpost init [--remote <url>]    create the orphan mail branch + manifest (--remote wires origin)
   swarmpost join <handle> [--provider p --model m --argv a,b --env KEY1,KEY2 --notes "..."]
                                      create your mailbox + roster entry (+ optional §5.1 profile)
   swarmpost whoami                   print the handle you're acting as
@@ -43,6 +43,7 @@ function parse(argv) {
     switch (a) {
       case '--json': flags.json = true; break;
       case '--mesh': flags.mesh = take(); break;
+      case '--remote': flags.remote = take(); break;
       case '--all': flags.all = true; break;
       case '--new': flags.new = true; break;
       case '--print-cmd': flags.printCmd = true; break;
@@ -106,7 +107,7 @@ async function main() {
 
   switch (verb) {
     case 'init': {
-      const r = ops.init(p);
+      const r = ops.init(p, { remote: flags.remote });
       const where = r.pushed ? 'pushed to origin'
         : r.hasRemote ? 'LOCAL ONLY — push failed; run `sp sync` to deliver'
         : 'LOCAL ONLY — no git remote; add one (git remote add origin <url>) to reach other machines';

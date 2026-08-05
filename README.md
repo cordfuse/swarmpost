@@ -98,10 +98,15 @@ gh repo create you/team-mesh --private
 git clone git@github.com:you/team-mesh mesh && cd mesh
 sp init            # → "Initialized mesh on 'mail' branch (pushed to origin)."
 
-# Existing local repo with no remote yet — add it, then init (or sync):
-git remote add origin git@github.com:you/repo.git
-sp init            # (if you already ran init before adding origin, just: sp sync)
+# Existing local repo with no remote yet — one command wires it:
+sp init --remote git@github.com:you/repo.git   # adds origin, then creates + pushes
+# (equivalently: git remote add origin <url> && sp init)
 ```
+
+`sp init --remote <url>` is the only git-remote plumbing sp does — it wires the
+one seam a mesh needs to be reachable, and never clobbers an existing origin.
+*Joining* a mesh that already exists is still `git clone <url> && sp join <handle>`
+— you don't `init` a mesh someone else already created.
 
 `sp init` tells you which happened: `pushed to origin`, or `LOCAL ONLY — no git
 remote` (works solo; add a remote + `sp sync` to go multi-machine). Other peers

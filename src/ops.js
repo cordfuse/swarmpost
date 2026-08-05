@@ -60,7 +60,20 @@ function findInMailbox(p, handle, idPrefix) {
 }
 
 // ── init ─────────────────────────────────────────────────────────────
-export function init(p) {
+export function init(p, opts = {}) {
+  // Optional convenience: wire `origin` so the mail branch has somewhere to push
+  // (§3). This is the ONLY git-remote plumbing sp does — it sets the one seam a
+  // mesh needs to be reachable; everything else about the repo stays git's job.
+  // Never clobbers a different origin. (Joining an existing mesh is still
+  // `git clone <url> && sp join <handle>` — you don't init a mesh that exists.)
+  if (opts.remote) {
+    const cur = git(['remote', 'get-url', 'origin'], p.root);
+    const existing = cur.status === 0 ? cur.stdout.trim() : '';
+    if (existing && existing !== opts.remote) {
+      throw new Error(`origin already set to ${existing} — refusing to clobber (drop --remote, or fix the remote with git)`);
+    }
+    if (!existing) git(['remote', 'add', 'origin', opts.remote], p.root);
+  }
   ensureWorktree(p, { create: true });
   if (existsSync(manifestFile(p))) throw new Error('mesh already initialized (manifest.md exists)');
   keepDir(join(p.worktree, 'agents'));

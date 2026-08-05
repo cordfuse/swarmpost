@@ -149,6 +149,30 @@ test('--mesh / SWARMPOST_MESH let sp run from outside the mesh dir (cross-repo)'
   assert.match(viaEnv.stdout, /\[task\] steve/);
 });
 
+test('init --remote wires origin from a fresh repo, and refuses to clobber a different one', () => {
+  const root = mkdtempSync(join(tmpdir(), 'sp-remote-'));
+  git(root, ['init', '-q', '--bare', 'relay.git']);
+  const relay = join(root, 'relay.git');
+
+  // a fresh local repo with NO origin
+  const M = join(root, 'M'); mkdirSync(M);
+  git(M, ['init', '-q']); git(M, ['commit', '-q', '--allow-empty', '-m', 'root']);
+
+  const r = sp(M, ['init', '--remote', relay]);
+  assert.equal(r.status, 0, 'init --remote succeeds');
+  assert.match(r.stdout, /pushed to origin/, 'wired origin and pushed');
+  assert.equal(git(M, ['remote', 'get-url', 'origin']).stdout, relay, 'origin now set');
+  assert.notEqual(git(M, ['ls-remote', relay, 'mail']).stdout, '', 'mail branch reached the relay');
+
+  // clobber guard: a repo that already has a DIFFERENT origin
+  const N = join(root, 'N'); mkdirSync(N);
+  git(N, ['init', '-q']); git(N, ['commit', '-q', '--allow-empty', '-m', 'root']);
+  git(N, ['remote', 'add', 'origin', 'file:///somewhere/else.git']);
+  const bad = sp(N, ['init', '--remote', relay]);
+  assert.notEqual(bad.status, 0, 'refuses to clobber a different origin');
+  assert.match(bad.stderr, /clobber|already set/);
+});
+
 test('status dashboard + thread cross-mailbox transcript (fat-read verbs)', () => {
   const { A, B } = setup();
   sp(A, ['init']); sp(A, ['join', 'steve']); sp(B, ['join', 'claude-code']);
