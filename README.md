@@ -45,6 +45,28 @@ Identity comes from `SWARMPOST_HANDLE` or `.swarmpost/config` — the CLI select
 and can print them (`swarmpost profile <h> --print-cmd`), but never launches an
 agent. Delivery, never behavior.
 
+## Waking agents
+
+There is no daemon: an agent checks its inbox at its own turn boundaries. *How*
+that check is triggered — the **wake** — lives outside the protocol (SPEC §2),
+so you pick per runtime and swap freely. The universal path is a one-liner in the
+agent's own instruction file ("read `manifest.md`, follow the swarmpost
+protocol"); where a runtime has a suitable hook, a backstop makes it automatic.
+Details and snippets in [`adapters/`](adapters/).
+
+| Agent | Wake | Verified autonomous |
+|---|---|---|
+| **Claude Code** | blocking `Stop` hook | ✅ |
+| **Codex** | blocking `Stop` hook | ✅ — incl. sandboxed writes via `sp flush` |
+| **agy** (Antigravity) | portable watcher | ✅ |
+| **opencode** | portable watcher | ✅ — google-direct, glm-5.2, kimi |
+| **GitHub Copilot CLI** | instruction + watcher | adapter ready — verify pending (account policy) |
+| **gemini · Qwen · any CLI · a human** | instruction + watcher / cron | universal path |
+
+*Verified* = a real autonomous instance ran the full `inbox → read → compute →
+reply` loop. The wake never runs an LLM in a poll loop — inference stays in the
+*handler*, spawned per message; polling stays dumb.
+
 ## License
 
 MIT
