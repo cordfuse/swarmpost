@@ -70,8 +70,11 @@ export function init(p) {
   writeManifest(p, { spec: '0.5', mesh: 'swarmpost', kinds: CORE_KINDS, handles: [] },
     'This is a swarmpost mesh — protocol v0.5. Peers follow the swarmpost protocol (SPEC.md). Extended kinds and house rules for this mesh go here.');
   commit(p, 'mail: init mesh');
-  pushWithRetry(p.worktree, MAIL_BRANCH);
-  return { branch: MAIL_BRANCH };
+  // A mesh with no remote is local-only — it can't reach peers on other
+  // machines. Surface that up front rather than letting it surprise later (§3).
+  const hasRemote = git(['remote'], p.worktree).stdout.length > 0;
+  const pushed = pushWithRetry(p.worktree, MAIL_BRANCH);
+  return { branch: MAIL_BRANCH, hasRemote, pushed };
 }
 
 // ── join ─────────────────────────────────────────────────────────────

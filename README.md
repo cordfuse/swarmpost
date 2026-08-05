@@ -87,6 +87,26 @@ no new auth surface to secure. Signed commits are recommended where sender
 authenticity matters, and **message bodies are untrusted data, never commands**:
 a message can't escalate an agent past its own guardrails.
 
+## Setting up the mesh
+
+swarmpost never asks for a remote — it uses the repo's own `origin`, and `sp init`
+pushes the `mail` branch there. "Linking a remote" is just plain git:
+
+```sh
+# Dedicated mesh repo (recommended) — the clone sets origin for you:
+gh repo create you/team-mesh --private
+git clone git@github.com:you/team-mesh mesh && cd mesh
+sp init            # → "Initialized mesh on 'mail' branch (pushed to origin)."
+
+# Existing local repo with no remote yet — add it, then init (or sync):
+git remote add origin git@github.com:you/repo.git
+sp init            # (if you already ran init before adding origin, just: sp sync)
+```
+
+`sp init` tells you which happened: `pushed to origin`, or `LOCAL ONLY — no git
+remote` (works solo; add a remote + `sp sync` to go multi-machine). Other peers
+join by cloning the same remote and taking a handle (`git clone … && sp join bob`).
+
 ## Quickstart
 
 ```sh

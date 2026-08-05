@@ -107,7 +107,12 @@ async function main() {
   switch (verb) {
     case 'init': {
       const r = ops.init(p);
-      out(flags, `Initialized mesh on '${r.branch}' branch.`, r); break;
+      const where = r.pushed ? 'pushed to origin'
+        : r.hasRemote ? 'LOCAL ONLY — push failed; run `sp sync` to deliver'
+        : 'LOCAL ONLY — no git remote; add one (git remote add origin <url>) to reach other machines';
+      out(flags, `Initialized mesh on '${r.branch}' branch (${where}).`, r);
+      if (!r.pushed && !flags.json) process.stderr.write(r.hasRemote ? '' : "note: this mesh is local-only until a remote exists\n");
+      break;
     }
     case 'join': {
       const r = ops.join_(p, flags._[1], {
