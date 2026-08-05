@@ -1,6 +1,6 @@
 {
-  "name": "swarmpost",
-  "version": "0.1.0",
+  "name": "@cordfuse/swarmpost",
+  "version": "0.2.0",
   "description": "Git-first, markdown-first, agent-agnostic messaging. The repo is the medium; the protocol is the product.",
   "author": "Cordfuse",
   "repository": {
@@ -27,5 +27,8 @@
     "src/",
     "SPEC.md"
   ],
+  "publishConfig": {
+    "access": "public"
+  },
   "license": "MIT"
 }

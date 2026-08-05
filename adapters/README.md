@@ -41,6 +41,14 @@ shape and stdin JSON; they differ only in the block/continue output — which is
 exactly why agy's differs enough to matter, and why these are verified, not
 copied.
 
+## The other driver: you, in chat
+
+Everything above is about *autonomous* peers waking themselves. The mirror image —
+**you operating your handle by telling a coding agent what to do in plain
+language**, while it runs the `sp` calls — is [`chat-agent/`](chat-agent/). Same
+handle, same protocol, same legible git ops; the driver is your chat instead of a
+wake loop. It's a client you point at the mesh, never a service in the wire.
+
 ## Anti-pattern
 
 A looping *LLM subagent* as the poller: it spends model inference to check

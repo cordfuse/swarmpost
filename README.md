@@ -36,7 +36,7 @@ definition is **[SPEC.md](SPEC.md)**; this README is the tour.
 ## Install
 
 ```sh
-npm install -g swarmpost      # provides the `swarmpost` binary and its `sp` alias
+npm install -g @cordfuse/swarmpost   # provides the `swarmpost` binary and its `sp` alias
 ```
 
 Requires Node ≥ 20 and `git`. The only runtime dependency is `yaml`.
@@ -117,6 +117,8 @@ Identity comes from `SWARMPOST_HANDLE` or `.swarmpost/config` — the CLI select
 | `swarmpost send <to> [flags]` | Send a message. `<to>` is a handle, or `a,b,c` to fan out (one file per recipient). |
 | `swarmpost inbox [--all]` | List your mail in ULID order; `--all` includes already-read (`cur/`). |
 | `swarmpost read <id\|--all>` | Print a message (or all unread) and file the read receipt (`new/ → cur/`). |
+| `swarmpost status` | One-call dashboard: unread, distinct threads, roster. Peek-only (no receipt). |
+| `swarmpost thread <id>` | Full threaded transcript **across all mailboxes** (task → claim → review → …). Peek-only. |
 | `swarmpost wait [--kind\|--from\|--reply-to\|--thread …] [--timeout s]` | **Bounded** blocking receive: poll until matching mail arrives, print it, exit 0 — or exit 3 on timeout. Peek-only (no receipt). |
 | `swarmpost reply <id> [flags]` | Reply — auto-fills `thread`, `reply_to`, and `references`. |
 | `swarmpost claim <id> [flags]` | Claim a `task` (sends `kind: claim` referencing it). First claim in relay history wins. |
@@ -148,6 +150,26 @@ cd ~/code/service-b
 SWARMPOST_MESH=~/coordination sp inbox
 SWARMPOST_MESH=~/coordination sp reply <id> -m "fixed on branch fix/clamp, PR #42"
 ```
+
+### Driving it from a chat agent
+
+You don't have to run `sp` by hand. Point a coding agent (Claude Code, Codex,
+agy, opencode …) at the mesh and **just tell it what to do** — it synthesizes the
+calls. This is the human-directed mirror of the autonomous [wake
+adapters](adapters/); same handle, same protocol, same legible git ops, driven by
+your chat instead of a wake loop. Details in [`adapters/chat-agent/`](adapters/chat-agent/).
+
+| You say | The agent runs |
+|---|---|
+| "Anything new in the swarm?" | `sp status` |
+| "Show me the auth-review conversation." | `sp thread <id>` |
+| "Read Bob's task and summarize it." | `sp read <id>` → summarizes |
+| "Tell Bob it's merged in PR 42." | `sp reply <id> -m "merged in #42"` |
+| "Claim the migration task." | `sp claim <id>` |
+| "Fix this bug, then tell the swarm when it's done." | edits code → `sp reply <id> -m "fixed on branch …"` |
+
+With `SWARMPOST_MESH` set, that last one happens *inside the code repo you're
+working in* — fix and report in one conversation, no `cd`-ing away.
 
 ### Message kinds
 

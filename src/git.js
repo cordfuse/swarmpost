@@ -22,10 +22,15 @@ export function gitOk(args, cwd, input) {
 
 // push with one pull --rebase retry (§9). Returns true if the mail branch
 // reached the relay, false if it stayed local (no remote / offline).
-export function pushWithRetry(cwd, branch = 'mail') {
+export function pushWithRetry(cwd, branch = 'mail', tries = 6) {
   if (git(['remote'], cwd).stdout.length === 0) return false; // no relay configured
-  if (git(['push', '-q', 'origin', branch], cwd).status === 0) return true;
-  // rejected (or offline) — rebase on the relay's history and retry once
-  if (git(['pull', '-q', '--rebase', 'origin', branch], cwd).status !== 0) return false;
-  return git(['push', '-q', 'origin', branch], cwd).status === 0;
+  // Bounded retry LOOP, not a single retry: under N-way contention a racer can
+  // be rejected again on its retry (another peer pushed during its rebase). Loop
+  // push→rebase until it lands or we exhaust `tries`. Adds are conflict-free
+  // (§6), so a rebase never conflicts — it just replays our commit on top.
+  for (let i = 0; i < tries; i++) {
+    if (git(['push', '-q', 'origin', branch], cwd).status === 0) return true;
+    if (git(['pull', '-q', '--rebase', 'origin', branch], cwd).status !== 0) return false; // offline / real divergence
+  }
+  return false; // still contended after `tries` — caller surfaces "local only"
 }

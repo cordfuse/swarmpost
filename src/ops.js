@@ -145,8 +145,10 @@ export function send(p, toRaw, opts = {}) {
   }
   // one commit for the whole fan-out (finding: atomicity unit = commit)
   commit(p, `mail: ${from} -> ${recipients.join(',')} ${opts.kind || 'info'}`);
-  pushWithRetry(p.worktree, MAIL_BRANCH);
-  return { ids };
+  // surface delivery: a message committed locally but not pushed is NOT yet
+  // visible to peers — the caller must be able to tell (silent-failure guard).
+  const pushed = pushWithRetry(p.worktree, MAIL_BRANCH);
+  return { ids, pushed };
 }
 
 // ── inbox ────────────────────────────────────────────────────────────
@@ -228,6 +230,58 @@ export function read(p, idOrAll, opts = {}) {
     pushWithRetry(p.worktree, MAIL_BRANCH);
   }
   return bodies;
+}
+
+// ── status ───────────────────────────────────────────────────────────
+// One-call dashboard for the current handle: unread, read count, distinct
+// threads, and the roster. Collapses the inbox→read→read… sequence into a
+// single read — the fat-read answer to "what's happening?" (esp. for a human
+// driving an agent in chat).
+export function status(p) {
+  ensureWorktree(p);
+  syncIn(p);
+  const me = whoami(p);
+  const unread = [];
+  const newDir = inboxNew(p, me);
+  for (const f of listMessages(newDir)) {
+    let d = {};
+    try { d = parseMessage(readFileSync(join(newDir, f), 'utf8')).data; } catch { /* poison — still list */ }
+    unread.push({ id: d.id || f.split('.')[0], from: d.from || '?', kind: d.kind || '?', subject: d.subject || '', thread: d.thread });
+  }
+  const readCount = listMessages(inboxCur(p, me)).length;
+  const threads = new Set(unread.map((m) => m.thread).filter(Boolean)).size;
+  return { handle: me, unread, readCount, threads, roster: roster(p) };
+}
+
+// ── thread ───────────────────────────────────────────────────────────
+// Full threaded transcript, ACROSS every mailbox — the cross-mailbox view a
+// reviewer had to drop to raw git for. Pass a message id or a thread id.
+export function thread(p, idOrThread) {
+  ensureWorktree(p);
+  syncIn(p);
+  const all = [];
+  for (const h of roster(p)) {
+    for (const box of [inboxNew(p, h), inboxCur(p, h)]) {
+      for (const f of listMessages(box)) {
+        try {
+          const { data, body } = parseMessage(readFileSync(join(box, f), 'utf8'));
+          all.push({
+            id: data.id, from: data.from, to: data.to, kind: data.kind,
+            subject: data.subject || '', thread: data.thread, ts: data.ts, body,
+          });
+        } catch { /* skip poison */ }
+      }
+    }
+  }
+  // resolve the root: an explicit thread id, or the thread of the named message
+  const hit = all.find((m) => m.id === idOrThread);
+  const root = hit ? (hit.thread || hit.id) : idOrThread;
+  const seen = new Set();
+  const messages = all
+    .filter((m) => (m.thread || m.id) === root)
+    .filter((m) => (seen.has(m.id) ? false : seen.add(m.id)))
+    .sort((a, b) => (String(a.id) > String(b.id) ? 1 : -1)); // ULID order ~ time order
+  return { thread: root, messages };
 }
 
 // ── reply ────────────────────────────────────────────────────────────

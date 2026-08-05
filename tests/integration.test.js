@@ -4,7 +4,7 @@
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { spawnSync } from 'node:child_process';
+import { spawnSync, spawn } from 'node:child_process';
 import { mkdtempSync, mkdirSync, writeFileSync, existsSync, readFileSync, readdirSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, dirname } from 'node:path';
@@ -147,6 +147,70 @@ test('--mesh / SWARMPOST_MESH let sp run from outside the mesh dir (cross-repo)'
   const viaEnv = spawnSync('node', [BIN, 'inbox'], { cwd: root, encoding: 'utf8', env: { ...env, SWARMPOST_MESH: B } });
   assert.equal(viaEnv.status, 0, 'SWARMPOST_MESH resolves the mesh from a foreign cwd');
   assert.match(viaEnv.stdout, /\[task\] steve/);
+});
+
+test('status dashboard + thread cross-mailbox transcript (fat-read verbs)', () => {
+  const { A, B } = setup();
+  sp(A, ['init']); sp(A, ['join', 'steve']); sp(B, ['join', 'claude-code']);
+  const taskid = sp(A, ['send', 'claude-code', '--kind', 'task', '-s', 'review auth', '-m', 'please review']).stdout.replace(/^Sent:\s*/, '');
+  sp(B, ['read', taskid]);
+  sp(B, ['reply', taskid, '-m', 'LGTM']);
+
+  // status (as steve): the reply is unread, roster lists both, no receipt filed
+  const st = JSON.parse(sp(A, ['status', '--json']).stdout);
+  assert.equal(st.handle, 'steve');
+  assert.equal(st.unread.length, 1, 'steve sees the reply as unread');
+  assert.deepEqual(st.roster.slice().sort(), ['claude-code', 'steve']);
+
+  // thread spans BOTH mailboxes: the task (in claude-code's cur/) + the reply (in steve's new/)
+  const th = JSON.parse(sp(A, ['thread', taskid, '--json']).stdout);
+  assert.equal(th.messages.length, 2, 'thread gathers task + reply across mailboxes');
+  assert.deepEqual(th.messages.map((m) => m.kind), ['task', 'info'], 'ULID-ordered: task then reply');
+  // thread is a peek — it did not consume steve's unread
+  assert.equal(JSON.parse(sp(A, ['status', '--json']).stdout).unread.length, 1, 'thread filed no receipt');
+});
+
+test('claim-race: N concurrent claims all deliver, one deterministic winner (SPEC §10)', async () => {
+  const { root, relay, A } = setup();
+  const N = 5;
+  sp(A, ['init']); sp(A, ['join', 'steve']);
+  const racers = Array.from({ length: N }, (_, i) => `r${i + 1}`);
+  const envFor = (r) => ({ ...process.env, ...GITENV, SWARMPOST_HANDLE: r });
+  for (const r of racers) spawnSync('node', [BIN, 'join', r], { cwd: A, encoding: 'utf8', env: envFor(r) });
+
+  // steve posts ONE contested task; every racer will claim THIS id
+  const taskid = sp(A, ['send', 'steve', '--kind', 'task', '-m', 'one winner only']).stdout.replace(/^Sent:\s*/, '');
+
+  // each racer gets its own clone ("machine"), pre-synced to the same base
+  const clone = {};
+  for (const r of racers) {
+    git(root, ['clone', '-q', relay, r]);
+    const dir = join(root, r);
+    git(dir, ['config', 'user.name', r]); git(dir, ['config', 'user.email', `${r}@x`]);
+    spawnSync('node', [BIN, 'sync'], { cwd: dir, encoding: 'utf8', env: envFor(r) });
+    clone[r] = dir;
+  }
+
+  // FIRE all N claims at once — genuine concurrent pushes to the relay
+  await Promise.all(racers.map((r) => new Promise((resolve) => {
+    spawn('node', [BIN, 'send', 'steve', '--kind', 'claim', '--ref', taskid, '-m', `${r} claims`],
+      { cwd: clone[r], env: envFor(r) }).on('close', resolve);
+  })));
+
+  // ALL N claims must have reached the relay (guards pushWithRetry under contention)
+  git(root, ['clone', '-q', relay, 'verify-race']);
+  const verify = join(root, 'verify-race');
+  git(verify, ['checkout', '-q', 'mail']);
+  const nd = join(verify, 'agents', 'steve', 'inbox', 'new');
+  const claims = readdirSync(nd).filter((f) => f.endsWith('.md'))
+    .map((f) => parseMessage(readFileSync(join(nd, f), 'utf8')).data)
+    .filter((d) => d.kind === 'claim' && (d.references || []).includes(taskid));
+  assert.equal(claims.length, N, `all ${N} concurrent claims delivered to the relay`);
+
+  // exactly one winner: the earliest claim commit in the relay's linear history
+  const hist = git(verify, ['log', '--reverse', '--format=%s', 'mail']).stdout.split('\n');
+  const firstClaim = hist.find((s) => /r\d+ -> steve claim/.test(s));
+  assert.ok(firstClaim, 'a first claim exists in relay history — deterministic winner');
 });
 
 test('wait: matches waiting mail instantly, does not consume, times out with exit 3', () => {

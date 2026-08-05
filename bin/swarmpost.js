@@ -15,6 +15,8 @@ const USAGE = `swarmpost — git-first, markdown-first agent messaging
   swarmpost whoami                   print the handle you're acting as
   swarmpost send <to> [flags]        send a message (to = handle, or a,b,c fan-out)
   swarmpost inbox [--all]            list your mail (fetches first); --all includes read
+  swarmpost status                   one-call dashboard: unread, threads, roster (no receipt)
+  swarmpost thread <id>              full threaded transcript across all mailboxes (no receipt)
   swarmpost read <id|--all>          print + receipt (fetches first; new/ -> cur/)
   swarmpost wait [--reply-to id|--kind k|--from h|--thread id] [--timeout s] [--interval s]
                                      block until matching mail arrives, then print it (bounded; no receipt)
@@ -78,6 +80,15 @@ function out(flags, human, obj) {
   else if (human) process.stdout.write(human + '\n');
 }
 
+// A message committed locally but not pushed is NOT visible to peers yet. Never
+// let that pass silently — warn (human mode) so it isn't mistaken for delivered.
+// (--json already carries `pushed`.) Not an error: `sp sync` will deliver it.
+function warnIfLocal(flags, r) {
+  if (r && r.pushed === false && !flags.json) {
+    process.stderr.write("note: committed locally but NOT delivered to the relay yet — run 'sp sync' to deliver\n");
+  }
+}
+
 function sendOpts(flags) {
   return {
     kind: flags.kind, subject: flags.subject, thread: flags.thread,
@@ -111,7 +122,7 @@ async function main() {
     }
     case 'send': {
       const r = ops.send(p, flags._[1], sendOpts(flags));
-      out(flags, r.ids.map((id) => `Sent: ${id}`).join('\n'), r); break;
+      out(flags, r.ids.map((id) => `Sent: ${id}`).join('\n'), r); warnIfLocal(flags, r); break;
     }
     case 'inbox': {
       const r = ops.inbox(p, { all: flags.all });
@@ -121,6 +132,22 @@ async function main() {
       const r = ops.read(p, flags._[1] ?? (flags.all ? '--all' : undefined), { all: flags.all });
       out(flags, r.map((m) => m.text).join('\n---\n'), r.map((m) => ({ file: m.file }))); break;
     }
+    case 'status': {
+      const r = ops.status(p);
+      const human = [
+        `handle: ${r.handle}`,
+        `unread: ${r.unread.length}${r.unread.length ? '\n' + r.unread.map((m) => `  ${m.id}  [${m.kind}] ${m.from}: ${m.subject}`).join('\n') : ''}`,
+        `read:   ${r.readCount}    threads: ${r.threads}`,
+        `roster: ${r.roster.join(', ')}`,
+      ].join('\n');
+      out(flags, human, r); break;
+    }
+    case 'thread': {
+      const r = ops.thread(p, flags._[1]);
+      const human = `thread ${r.thread} — ${r.messages.length} message${r.messages.length === 1 ? '' : 's'}\n\n` +
+        r.messages.map((m) => `─ ${m.id}  [${m.kind}] ${m.from} → ${m.to}${m.subject ? `  «${m.subject}»` : ''}\n  ${(m.body || '').trim().replace(/\n/g, '\n  ')}`).join('\n\n');
+      out(flags, human, r); break;
+    }
     case 'wait': {
       const r = ops.wait(p, {
         reply_to: flags.reply_to, kind: flags.kind, from: flags.from, thread: flags.thread,
@@ -129,9 +156,9 @@ async function main() {
       if (!r.matched) { out(flags, '(timed out — no matching mail)', r); process.exit(3); }
       out(flags, r.messages.map((m) => `${m.id}  [${m.kind}] ${m.from}: ${m.subject}`).join('\n'), r); break;
     }
-    case 'reply': { const r = ops.reply(p, flags._[1], sendOpts(flags)); out(flags, r.ids.map((id) => `Sent: ${id}`).join('\n'), r); break; }
-    case 'claim': { const r = ops.claim(p, flags._[1], sendOpts(flags)); out(flags, `Claimed via ${r.ids[0]}`, r); break; }
-    case 'ack':   { const r = ops.ack(p, flags._[1], sendOpts(flags)); out(flags, `Ack sent: ${r.ids[0]}`, r); break; }
+    case 'reply': { const r = ops.reply(p, flags._[1], sendOpts(flags)); out(flags, r.ids.map((id) => `Sent: ${id}`).join('\n'), r); warnIfLocal(flags, r); break; }
+    case 'claim': { const r = ops.claim(p, flags._[1], sendOpts(flags)); out(flags, `Claimed via ${r.ids[0]}`, r); warnIfLocal(flags, r); break; }
+    case 'ack':   { const r = ops.ack(p, flags._[1], sendOpts(flags)); out(flags, `Ack sent: ${r.ids[0]}`, r); warnIfLocal(flags, r); break; }
     case 'sync':  { const r = ops.sync(p); out(flags, r.pushed ? 'synced (pushed)' : 'synced (local only — no relay/offline)', r); break; }
     case 'flush': { const r = ops.flush(p); out(flags, r.committed ? `flushed${r.pushed ? ' (pushed)' : ' (local only)'}` : 'nothing to flush', r); break; }
     case 'profile': {
