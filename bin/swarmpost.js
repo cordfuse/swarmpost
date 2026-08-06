@@ -112,6 +112,7 @@ async function main() {
         : r.hasRemote ? 'LOCAL ONLY — push failed; run `sp sync` to deliver'
         : 'LOCAL ONLY — no git remote; add one (git remote add origin <url>) to reach other machines';
       out(flags, `Initialized mesh on '${r.branch}' branch (${where}).`, r);
+      if (r.scaffolded?.length && !flags.json) process.stdout.write(`Scaffolded (review + commit): ${r.scaffolded.join(', ')}\n`);
       if (!r.pushed && !flags.json) process.stderr.write(r.hasRemote ? '' : "note: this mesh is local-only until a remote exists\n");
       break;
     }

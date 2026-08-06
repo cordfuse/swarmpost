@@ -149,6 +149,22 @@ test('--mesh / SWARMPOST_MESH let sp run from outside the mesh dir (cross-repo)'
   assert.match(viaEnv.stdout, /\[task\] steve/);
 });
 
+test('init scaffolds AGENTS.md + SPEC.md + README.md, create-if-missing (no clobber)', () => {
+  const { A } = setup();
+  // pre-place my own AGENTS.md — init must NOT overwrite it
+  writeFileSync(join(A, 'AGENTS.md'), 'MY OWN AGENTS FILE\n');
+  const r = sp(A, ['init']);
+  assert.equal(r.status, 0);
+  assert.match(r.stdout, /Scaffolded/, 'reports what it created');
+  // existing file preserved
+  assert.match(readFileSync(join(A, 'AGENTS.md'), 'utf8'), /MY OWN AGENTS FILE/, 'existing AGENTS.md untouched');
+  // SPEC.md copied from the package, with protocol content
+  assert.ok(existsSync(join(A, 'SPEC.md')), 'SPEC.md scaffolded');
+  assert.match(readFileSync(join(A, 'SPEC.md'), 'utf8'), /swarmpost/i);
+  // README.md created
+  assert.ok(existsSync(join(A, 'README.md')), 'README.md scaffolded');
+});
+
 test('init --remote wires origin from a fresh repo, and refuses to clobber a different one', () => {
   const root = mkdtempSync(join(tmpdir(), 'sp-remote-'));
   git(root, ['init', '-q', '--bare', 'relay.git']);

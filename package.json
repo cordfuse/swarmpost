@@ -1,6 +1,6 @@
 {
   "name": "@cordfuse/swarmpost",
-  "version": "0.2.2",
+  "version": "0.2.3",
   "description": "Git-first, markdown-first, agent-agnostic messaging. The repo is the medium; the protocol is the product.",
   "author": "Cordfuse",
   "repository": {
