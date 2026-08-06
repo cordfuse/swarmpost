@@ -210,6 +210,30 @@ test('init --remote wires origin from a fresh repo, and refuses to clobber a dif
   assert.match(bad.stderr, /clobber|already set/);
 });
 
+test('dead: quarantines a message to dead/, lists it, and -m bounces an error to the sender', () => {
+  const { A, B } = setup();
+  sp(A, ['init']); sp(A, ['join', 'steve']); sp(B, ['join', 'claude-code']);
+  const id = sp(A, ['send', 'claude-code', '--kind', 'task', '-m', 'do X']).stdout.replace(/^Sent:\s*/, '');
+
+  // claude-code can't handle it → dead-letter with a reason (bounces to steve)
+  const d = sp(B, ['dead', id, '-m', 'cannot process this']);
+  assert.equal(d.status, 0);
+  assert.match(d.stdout, /Dead-lettered/);
+  assert.match(d.stdout, /bounced error to sender/);
+
+  // gone from the working inbox
+  assert.equal(sp(B, ['inbox']).stdout, '(no mail)', 'removed from inbox');
+  // listed in the dead box
+  assert.match(sp(B, ['dead']).stdout, new RegExp(id), 'shows in dead box');
+  // sender received the error bounce
+  assert.match(sp(A, ['inbox']).stdout, /\[error\] claude-code/, 'sender got an error bounce');
+
+  // dead without -m just quarantines (no bounce)
+  const id2 = sp(A, ['send', 'claude-code', '--kind', 'task', '-m', 'do Y']).stdout.replace(/^Sent:\s*/, '');
+  const d2 = sp(B, ['dead', id2]);
+  assert.doesNotMatch(d2.stdout, /bounced/, 'no bounce without -m');
+});
+
 test('status dashboard + thread cross-mailbox transcript (fat-read verbs)', () => {
   const { A, B } = setup();
   sp(A, ['init']); sp(A, ['join', 'steve']); sp(B, ['join', 'claude-code']);

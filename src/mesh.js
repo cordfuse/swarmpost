@@ -39,6 +39,7 @@ export const manifestFile = (p) => join(p.worktree, 'manifest.md');
 export const agentDir = (p, h) => join(p.worktree, 'agents', h);
 export const inboxNew = (p, h) => join(agentDir(p, h), 'inbox', 'new');
 export const inboxCur = (p, h) => join(agentDir(p, h), 'inbox', 'cur');
+export const inboxDead = (p, h) => join(agentDir(p, h), 'inbox', 'dead');
 
 // Materialize the mail branch as a hidden worktree so the developer's working
 // directory never switches branches (§3). Idempotent.

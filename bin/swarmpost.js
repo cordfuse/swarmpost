@@ -23,6 +23,7 @@ const USAGE = `swarmpost — git-first, markdown-first agent messaging
   swarmpost reply <id> [flags]       reply to a message
   swarmpost claim <id> [flags]       claim a task (kind: claim)
   swarmpost ack <id>                 acknowledge a message
+  swarmpost dead [<id>] [-m <why>]   quarantine a message to inbox/dead/ (or list the box); -m bounces an error to the sender
   swarmpost sync                     fetch/rebase/push the mail branch
   swarmpost flush                    commit + push mail an agent wrote but couldn't (run unsandboxed)
   swarmpost profile <handle> [--print-cmd]   show profile; --print-cmd emits (never runs) the launch command
@@ -177,6 +178,12 @@ async function main() {
     case 'reply': { const r = ops.reply(p, flags._[1], sendOpts(flags)); out(flags, r.ids.map((id) => `Sent: ${id}`).join('\n'), r); warnIfLocal(flags, r); break; }
     case 'claim': { const r = ops.claim(p, flags._[1], sendOpts(flags)); out(flags, `Claimed via ${r.ids[0]}`, r); warnIfLocal(flags, r); break; }
     case 'ack':   { const r = ops.ack(p, flags._[1], sendOpts(flags)); out(flags, `Ack sent: ${r.ids[0]}`, r); warnIfLocal(flags, r); break; }
+    case 'dead': {
+      const r = ops.dead(p, flags._[1], { body: resolveBody(flags) });
+      if (r.list) out(flags, r.list.length ? r.list.map((m) => `${m.id}  [${m.kind}] ${m.from}: ${m.subject}`).join('\n') : '(dead-letter box empty)', r.list);
+      else out(flags, `Dead-lettered ${r.id}${r.bounced ? ` (bounced error to sender: ${r.bounced})` : ''}`, r);
+      break;
+    }
     case 'sync':  { const r = ops.sync(p); out(flags, r.pushed ? 'synced (pushed)' : 'synced (local only — no relay/offline)', r); break; }
     case 'flush': { const r = ops.flush(p); out(flags, r.committed ? `flushed${r.pushed ? ' (pushed)' : ' (local only)'}` : 'nothing to flush', r); break; }
     case 'profile': {

@@ -8,7 +8,7 @@ import { stringify } from 'yaml';
 import { git, pushWithRetry } from './git.js';
 import { ulid, filename, serialize, parseMessage } from './envelope.js';
 import {
-  MAIL_BRANCH, paths, manifestFile, agentDir, inboxNew, inboxCur,
+  MAIL_BRANCH, paths, manifestFile, agentDir, inboxNew, inboxCur, inboxDead,
   ensureWorktree, syncIn, roster, readManifest, whoami, validHandle,
 } from './mesh.js';
 
@@ -375,6 +375,49 @@ export function thread(p, idOrThread) {
     .filter((m) => (seen.has(m.id) ? false : seen.add(m.id)))
     .sort((a, b) => (String(a.id) > String(b.id) ? 1 : -1)); // ULID order ~ time order
   return { thread: root, messages };
+}
+
+// ── dead (dead-letter box) ─────────────────────────────────────────────
+// Quarantine a message you can't handle (poison, or a task you can't do) into
+// inbox/dead/, out of your working inbox but never deleted (immutability, §6).
+// With no id, lists your dead box. With -m <reason>, also bounces a kind: error
+// back to the sender so undeliverability isn't silent.
+export function dead(p, id, opts = {}) {
+  ensureWorktree(p);
+  syncIn(p);
+  const me = whoami(p);
+  const deadDir = inboxDead(p, me);
+  if (!id) {
+    const list = [];
+    for (const f of listMessages(deadDir)) {
+      let d = {};
+      try { d = parseMessage(readFileSync(join(deadDir, f), 'utf8')).data; } catch { /* poison — still list */ }
+      list.push({ id: d.id || f.split('.')[0], from: d.from || '?', kind: d.kind || '?', subject: d.subject || '' });
+    }
+    return { list };
+  }
+  const found = findInMailbox(p, me, id);
+  if (!found) throw new Error(`no message matching '${id}' in ${me}'s mailbox`);
+  let data = {};
+  try { data = parseMessage(readFileSync(found.path, 'utf8')).data; } catch { /* poison — dead-letter it anyway */ }
+  mkdirSync(deadDir, { recursive: true });
+  renameSync(found.path, join(deadDir, found.file)); // fs move (sandbox-safe); git records below
+  commit(p, `mail: ${me} dead-letter ${found.file.split('.')[0]}`);
+  pushWithRetry(p.worktree, MAIL_BRANCH);
+  // optional bounce to the sender (only if we know who sent it)
+  let bounced = null;
+  if (opts.body && data.from) {
+    const r = send(p, data.from, {
+      kind: 'error',
+      subject: data.subject ? `Undeliverable: ${data.subject}` : 'Undeliverable',
+      thread: data.thread || data.id,
+      reply_to: data.id,
+      references: data.id ? [data.id] : [],
+      body: opts.body,
+    });
+    bounced = r.ids[0];
+  }
+  return { moved: found.file, id: found.file.split('.')[0], bounced };
 }
 
 // ── reply ────────────────────────────────────────────────────────────

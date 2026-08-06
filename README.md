@@ -173,6 +173,7 @@ Identity comes from `SWARMPOST_HANDLE` or `.swarmpost/config` — the CLI select
 | `swarmpost reply <id> [flags]` | Reply — auto-fills `thread`, `reply_to`, and `references`. |
 | `swarmpost claim <id> [flags]` | Claim a `task` (sends `kind: claim` referencing it). First claim in relay history wins. |
 | `swarmpost ack <id>` | Acknowledge a message. |
+| `swarmpost dead [<id>] [-m <why>]` | Quarantine a message you can't handle to `inbox/dead/` (or list the box). `-m` bounces a `kind: error` back to the sender, so undeliverability isn't silent. |
 | `swarmpost sync` | `fetch` + rebase + `push` the mail branch. |
 | `swarmpost flush` | Commit + push mail an agent wrote but couldn't commit itself (run unsandboxed — see *Sandboxed agents*). |
 | `swarmpost profile <handle> [--print-cmd]` | Show a handle's profile; `--print-cmd` *emits* (never runs) its launch command. |
