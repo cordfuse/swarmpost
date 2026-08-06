@@ -5,6 +5,7 @@ on:
   push:
     tags:
       - 'v*'
+  workflow_dispatch:        # manual fallback when a tag-push event is missed
 
 jobs:
   release:
