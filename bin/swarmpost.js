@@ -103,7 +103,18 @@ async function main() {
   const flags = parse(process.argv.slice(2));
   const verb = flags._[0];
   if (!verb || flags.help) { process.stdout.write(USAGE + '\n'); process.exit(verb ? 0 : 1); }
-  const p = paths(flags.mesh);
+
+  // `sp init --remote <url>` can bootstrap a fresh repo (clear intent). A bare
+  // `sp init` in a non-repo stays an error, but with a pointer to the fix.
+  let createdRepo = false;
+  if (verb === 'init' && flags.remote) createdRepo = ops.ensureGitRepo(flags.mesh);
+  let p;
+  try {
+    p = paths(flags.mesh);
+  } catch (e) {
+    if (verb === 'init') throw new Error(`${e.message}\n  or run 'sp init --remote <url>' to create a fresh repo here`);
+    throw e;
+  }
 
   switch (verb) {
     case 'init': {
@@ -111,7 +122,7 @@ async function main() {
       const where = r.pushed ? 'pushed to origin'
         : r.hasRemote ? 'LOCAL ONLY — push failed; run `sp sync` to deliver'
         : 'LOCAL ONLY — no git remote; add one (git remote add origin <url>) to reach other machines';
-      out(flags, `Initialized mesh on '${r.branch}' branch (${where}).`, r);
+      out(flags, `${createdRepo ? 'Created a new git repo. ' : ''}Initialized mesh on '${r.branch}' branch (${where}).`, { ...r, createdRepo });
       if (r.scaffolded?.length && !flags.json) process.stdout.write(`Scaffolded (review + commit): ${r.scaffolded.join(', ')}\n`);
       if (!r.pushed && !flags.json) process.stderr.write(r.hasRemote ? '' : "note: this mesh is local-only until a remote exists\n");
       break;

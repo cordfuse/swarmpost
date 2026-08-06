@@ -165,6 +165,27 @@ test('init scaffolds AGENTS.md + SPEC.md + README.md, create-if-missing (no clob
   assert.ok(existsSync(join(A, 'README.md')), 'README.md scaffolded');
 });
 
+test('init --remote bootstraps a fresh repo from an empty folder; bare init still errors with a hint', () => {
+  const root = mkdtempSync(join(tmpdir(), 'sp-boot-'));
+  git(root, ['init', '-q', '--bare', 'relay.git']);
+  const relay = join(root, 'relay.git');
+
+  // an empty folder that is NOT a git repo
+  const M = join(root, 'empty'); mkdirSync(M);
+  const r = sp(M, ['init', '--remote', relay]);
+  assert.equal(r.status, 0, 'init --remote succeeds from a non-repo');
+  assert.match(r.stdout, /Created a new git repo/);
+  assert.ok(existsSync(join(M, '.git')), 'git repo created');
+  assert.equal(git(M, ['remote', 'get-url', 'origin']).stdout, relay, 'origin wired');
+  assert.notEqual(git(M, ['ls-remote', relay, 'mail']).stdout, '', 'mail branch pushed');
+
+  // bare `sp init` in a non-repo still errors, and points at --remote
+  const N = join(root, 'empty2'); mkdirSync(N);
+  const bad = sp(N, ['init']);
+  assert.notEqual(bad.status, 0, 'bare init in a non-repo errors');
+  assert.match(bad.stderr, /--remote/, 'hints at sp init --remote');
+});
+
 test('init --remote wires origin from a fresh repo, and refuses to clobber a different one', () => {
   const root = mkdtempSync(join(tmpdir(), 'sp-remote-'));
   git(root, ['init', '-q', '--bare', 'relay.git']);

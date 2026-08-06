@@ -123,6 +123,17 @@ function scaffoldDocs(p) {
   return created;
 }
 
+// `sp init --remote` may create the repo itself: if the target dir isn't a git
+// repo yet, `git init` it. Only ever called when the user passed --remote (clear
+// intent), never for a bare `sp init`. Returns whether it created a new repo.
+export function ensureGitRepo(override) {
+  const dir = override || process.env.SWARMPOST_MESH || undefined;
+  const inside = git(['rev-parse', '--is-inside-work-tree'], dir);
+  if (inside.status === 0 && inside.stdout.trim() === 'true') return false;
+  git(['init', '-q'], dir);
+  return true;
+}
+
 // ── init ─────────────────────────────────────────────────────────────
 export function init(p, opts = {}) {
   // Optional convenience: wire `origin` so the mail branch has somewhere to push

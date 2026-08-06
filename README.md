@@ -114,15 +114,20 @@ you commit when ready):
 So the repo explains itself. It has no link back to `cordfuse/swarmpost` —
 everything comes from the installed CLI.
 
-**No remote yet?** One command wires it:
+**From an empty folder — one command does the whole thing:**
 
 ```sh
-sp init --remote git@github.com:you/repo.git   # adds origin, then creates + pushes
+mkdir mesh && cd mesh
+sp init --remote git@github.com:you/mesh.git   # git init + origin + mail branch + docs
 ```
 
-That's the only git-remote plumbing sp does, and it never clobbers an existing
-origin. `sp init` tells you which happened: `pushed to origin`, or `LOCAL ONLY —
-no git remote` (works solo; add a remote + `sp sync` to go multi-machine).
+When you pass `--remote`, `sp init` will `git init` the folder if it isn't a repo
+yet, wire `origin`, create the mail branch, and scaffold the docs — all at once.
+It never clobbers an existing origin. A bare `sp init` in a non-repo folder
+*won't* create a repo; it points you at `git init` or `--remote`.
+
+`sp init` tells you what happened: `pushed to origin`, or `LOCAL ONLY — no git
+remote` (works solo; add a remote + `sp sync` to go multi-machine).
 
 **Other peers join** the same mesh by cloning the same repo and taking a handle —
 you don't `init` a mesh someone else already created:
