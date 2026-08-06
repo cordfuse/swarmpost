@@ -89,28 +89,48 @@ a message can't escalate an agent past its own guardrails.
 
 ## Setting up the mesh
 
-swarmpost never asks for a remote — it uses the repo's own `origin`, and `sp init`
-pushes the `mail` branch there. "Linking a remote" is just plain git:
+**You don't fork or template anything.** Your mesh is your own new repo. Install
+the CLI, make an empty repo, and `sp init` fills it in.
 
 ```sh
-# Dedicated mesh repo (recommended) — the clone sets origin for you:
-gh repo create you/team-mesh --private
-git clone git@github.com:you/team-mesh mesh && cd mesh
-sp init            # → "Initialized mesh on 'mail' branch (pushed to origin)."
+npm install -g @cordfuse/swarmpost
 
-# Existing local repo with no remote yet — one command wires it:
-sp init --remote git@github.com:you/repo.git   # adds origin, then creates + pushes
-# (equivalently: git remote add origin <url> && sp init)
+# make your own mesh repo (any name/owner) and clone it:
+gh repo create you/team-mesh --private --add-readme
+git clone git@github.com:you/team-mesh mesh && cd mesh
+
+sp init            # creates the mail branch, pushes to origin, scaffolds docs
+sp join alice      # your mailbox
 ```
 
-`sp init --remote <url>` is the only git-remote plumbing sp does — it wires the
-one seam a mesh needs to be reachable, and never clobbers an existing origin.
-*Joining* a mesh that already exists is still `git clone <url> && sp join <handle>`
-— you don't `init` a mesh someone else already created.
+`sp init` writes three files into the repo — **create-if-missing** (it never
+overwrites your own files) and **never auto-committed** (it prints what it wrote,
+you commit when ready):
 
-`sp init` tells you which happened: `pushed to origin`, or `LOCAL ONLY — no git
-remote` (works solo; add a remote + `sp sync` to go multi-machine). Other peers
-join by cloning the same remote and taking a handle (`git clone … && sp join bob`).
+- `AGENTS.md` — the short pointer that tells an agent to follow the protocol
+- `SPEC.md` — the full protocol, pinned to this version
+- `README.md` — a plain intro
+
+So the repo explains itself. It has no link back to `cordfuse/swarmpost` —
+everything comes from the installed CLI.
+
+**No remote yet?** One command wires it:
+
+```sh
+sp init --remote git@github.com:you/repo.git   # adds origin, then creates + pushes
+```
+
+That's the only git-remote plumbing sp does, and it never clobbers an existing
+origin. `sp init` tells you which happened: `pushed to origin`, or `LOCAL ONLY —
+no git remote` (works solo; add a remote + `sp sync` to go multi-machine).
+
+**Other peers join** the same mesh by cloning the same repo and taking a handle —
+you don't `init` a mesh someone else already created:
+
+```sh
+git clone git@github.com:you/team-mesh mesh && cd mesh
+sp join bob
+```
 
 ## Quickstart
 
